@@ -51,34 +51,48 @@ int Hash(string s)
 	return hash;
 }
 bool DecodeMsg(const string &data, int &cmd_id, string &msg)
-{ 
-	memset(buf, 0, sizeof(buf));
-	strcpy(buf, data.c_str());
-	struct Node node;	
-	memcpy(&node, buf, sizeof(buf));
-	msg = node.msg;
-	cmd_id = node.cmd_id;
+{
+	memset(buf, 0, sizeof(buf));	
+	//	strcpy(buf, data.c_str());
+	memcpy(buf, data.c_str(), data.length());
+	//for (int i = 0; i < data.length(); ++i) buf[i] = data[i];
+	int magic_num = *(int *)&buf[0];
+	cmd_id = *(int *)&buf[4];
 	
-	if (Hash(msg) != node.crc32) return false;
-	if (node.length != msg.length()) return false;
+	int crc32 = *(int *)&buf[8];
+	
+	int len = *(int *)&buf[12];
+	
+	//msg = buf + 16;
+	
+	msg = string(buf + 16, len);
+	
+	if (Hash(msg) != crc32) return false;
+	
+	if (len != msg.length()) return false;
+	
 	return true;
-
 }
+
 bool EncodeMsg(const int cmd_id, const string &data, string &msg)
 {
-	struct Node node;	
-	node.magic_num = 1;
-	node.cmd_id = cmd_id;
-	node.crc32 = Hash(data);
-	node.length = data.length();
-	node.msg = data;	
-
-	msg = "";
 	memset(buf, 0, sizeof(buf));
-	memcpy(buf, &node, sizeof(node));	
-	msg = buf;
+	
+	int magic_num = 1;
+	
+	int crc32 = Hash(data);
+	
+	int length = data.length();
+	*(int *)&buf[0] = magic_num;
+	*(int *)&buf[4] = cmd_id;
+	*(int *)&buf[8] = crc32;
+	*(int *)&buf[12] = length;
+	memcpy(buf + 16, data.c_str(), length);
+	
+	msg = string(buf, 16 + length);	
 	return true;
 }
+
 void myexit(char *s)
 {
 	perror(s);
@@ -97,7 +111,7 @@ void SetNonBlock(int fd, const bool flag)
 
 void Write(int fd, Client& client, string msg)
 {
-	puts("writing");
+//	puts("writing");
 	if (fd != STDOUT_FILENO) //socketfd
 	{
 	//	puts("jjejeej");
@@ -105,7 +119,8 @@ void Write(int fd, Client& client, string msg)
 //		strcpy(socket2.buf, buf);
 		memset(buf, 0, sizeof(buf));
 //		memcpy(buf, &socket2, sizeof(socket2));
-		strcpy(buf, msg.c_str());
+//		strcpy(buf, msg.c_str());
+		memcpy(buf, msg.c_str(), msg.length());
 		SetNonBlock(client.socket.sock_fd, 1);
 		int cur = 0;
 //		while (1)
@@ -129,6 +144,7 @@ void Write(int fd, Client& client, string msg)
 	}
 	else 
 	{
+		puts("sjfiowejfoijweoifjwo");
 		int cmd_id;
 		string s;
 		DecodeMsg(msg, cmd_id, s);
@@ -138,7 +154,7 @@ void Write(int fd, Client& client, string msg)
 }
 int Read(int fd, Client& client, string &msg)
 {
-	puts("reading");
+//	puts("reading");
 //	Socket socket2 = Socket();
 	if (fd != STDIN_FILENO) //socketfd
 	{
@@ -162,16 +178,17 @@ int Read(int fd, Client& client, string &msg)
 			}
 			cur += len;
 		}
-		if (strcmp(buf, "exit") == 0) return 1;
+		if (strcmp(buf, "exit\n") == 0) return 1;
 	//	Socket tmp = Socket();
 	//	memcpy(&tmp, buf, sizeof(tmp));
 //		printf("%s\n", tmp.buf);
 //		exit(0);
 //		puts("????");	
-		msg = buf;
+//		msg = buf;
+		msg = string (buf, cur);
 		SetNonBlock(client.socket.sock_fd, 0);
 		client.epoll.Modify(client.socket.sock_fd, EPOLLIN | EPOLLET);
-		client.epoll.Modify(STDOUT_FILENO, EPOLLOUT | EPOLLET);
+	//	client.epoll.Modify(STDOUT_FILENO, EPOLLOUT | EPOLLET);
 //		puts("last:");
 	}
 	else 
@@ -191,7 +208,8 @@ int Read(int fd, Client& client, string &msg)
 			cur += len;
 		}
 		struct Node node;
-		string s = buf;
+//		string s = buf;
+		string s = string(buf, cur);
 		EncodeMsg(3, s, msg);
 //		strcpy(client.socket.buf, buf);
 //		msg = buf;
@@ -221,72 +239,84 @@ int main(int argc, char **argv)
 	client.epoll.Add(STDIN_FILENO, EPOLLIN | EPOLLET);
 	client.epoll.Add(client.socket.sock_fd, EPOLLIN | EPOLLET);
 //	printf("%d\n", client.socket.sock_fd);
-	puts("please select the number to continue;");
-	puts("1----Create a new chatting room and join in");
-	puts("2----Join in a exist chatting room");
-	//	puts("3----exit");
 
-	int op;
-	op = 1;
-	scanf("%d", &op);
-	
-	if (op == 1)
-	{
-		s = "";
-		EncodeMsg(1, s, msg);
-	//	puts("?");
-		Write(-1, client, msg);
-	//	puts(".");
-	}
-	else if (op == 2)
-	{   
-	
-		s = "";
-		EncodeMsg(2, s, msg);
-		Write(-1, client, msg);	
-		Read(-1, client, s);  //from server
-		
-		int cmd_id;
-		
-		DecodeMsg(s, cmd_id, msg);
-	
-		printf("%s\n", msg.c_str());
-		puts("please select");
-		char room_num[12];
-		scanf("%s", room_num);
-		EncodeMsg(2, room_num, msg);	
-		Write(-1, client, msg);
-	}
-	else puts("error");
-	
-	int cmd_id;
 	while (1)
 	{
-//		puts("?");	
-		int ret = client.epoll.Wait();
-		int out = 0;
-//		printf("ret = %d\n", ret);
-		for (int i = 0; i < ret; ++i)
-		{
-			int fd = client.epoll.GetFd(i);
-		//	printf("%d\n", fd);
-			if (client.epoll.GetEvents(i) & EPOLLIN)
-			{
-				if (Read(fd, client, s)) out = 1;
-				DecodeMsg(s, cmd_id, msg);		
-				
-			}
-			else if (client.epoll.GetEvents(i) & EPOLLOUT) 
-			{
-				EncodeMsg(3, msg, s);
-				Write(fd, client, s);
-				
-			}
-		}
-//		puts("123");
-		if (out) break;
-
-	}
+		puts("please select the number to continue;");
+		puts("1----Create a new chatting room and join in");
+		puts("2----Join in a exist chatting room");
+		//	puts("3----exit");
 	
-
+		int op;
+		op = 1;
+		scanf("%d", &op);
+		
+		if (op == 1)
+		{
+			s = "-1";
+			EncodeMsg(1, s, msg);
+		//	cout << msg.substr(16, msg.length() - 16) << endl;
+		//	puts("?");
+			Write(-1, client, msg);
+		//	puts(".");
+		}
+		else if (op == 2)
+		{   
+		
+			s = "-1";
+			EncodeMsg(2, s, msg);
+			Write(-1, client, msg);
+			sleep(1);
+			Read(-1, client, s);  //from server
+			
+			int cmd_id;
+			
+			DecodeMsg(s, cmd_id, msg);
+		
+			printf("--  %s\n", msg.c_str());
+			puts("please select");
+			char room_num[12];
+			scanf("%s", room_num);
+			EncodeMsg(2, room_num, msg);	
+			Write(-1, client, msg);
+		}
+		else 
+		{
+			puts("error");
+			continue;
+		}
+		
+		int cmd_id;
+		while (1)
+		{
+	//		puts("?");	
+			int ret = client.epoll.Wait();
+			int out = 0;
+	//		printf("ret = %d\n", ret);
+			for (int i = 0; i < ret; ++i)
+			{
+				int fd = client.epoll.GetFd(i);
+			//	printf("%d\n", fd);
+				if (client.epoll.GetEvents(i) & EPOLLIN)
+				{
+					if (Read(fd, client, s)) out = 1;
+					DecodeMsg(s, cmd_id, msg);		
+					if (fd != STDIN_FILENO)
+					{
+						printf("%s\n", msg.c_str());
+					}
+				}
+				else if (client.epoll.GetEvents(i) & EPOLLOUT) 
+				{
+					EncodeMsg(3, msg, s);
+					Write(fd, client, s);
+					
+				}
+			}
+	//		puts("123");
+			if (out) break;
+	
+		}
+	
+	}
 }

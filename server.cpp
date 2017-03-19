@@ -75,37 +75,82 @@ int Hash(string s)
 	return hash;
 }
 bool DecodeMsg(const string &data, int &cmd_id, string &msg)
-{  
-	struct Node node;	
-	memset(buf, 0, sizeof(buf));
-	strcpy(buf, data.c_str());
-	memcpy(&node, buf, sizeof(data));
-	msg = node.msg;
-	cmd_id = node.cmd_id;
+{
+
+
 	
-	if (Hash(msg) != node.crc32) return false;
-	if (node.length != msg.length()) return false;
-	return true;
-
-}
-bool EncodeMsg(const int cmd_id, const string &data, string &msg)
-{
-	struct Node node;	
-	node.magic_num = 1;
-	node.cmd_id = cmd_id;
-	node.crc32 = Hash(data);
-	node.length = data.length();
-	node.msg = data;	
-
-	msg = "";
 	memset(buf, 0, sizeof(buf));
-	memcpy(buf, &node, sizeof(node));	
-	msg = buf;
+	
+	//	strcpy(buf, data.c_str());
+//	printf("--%d\n", data.length());	
+	memcpy(buf, data.c_str(), data.length());
+//	puts("ook");	
+	//for (int i = 0; i < data.length(); ++i) buf[i] = data[i];
+	
+	int magic_num = *(int *)&buf[0];
+	
+	cmd_id = *(int *)&buf[4];
+	
+	int crc32 = *(int *)&buf[8];
+	
+	int len = *(int *)&buf[12];
+	
+	//msg = buf + 16;
+//	cout << msg << endl;
+//	printf("len = %d\n", len);	
+//	if (len) puts("cao");
+	if (len) msg = string(buf + 16, len);
+		
+//	puts("fick");
+	if (Hash(msg) != crc32) return false;
+	
+	if (len != msg.length()) return false;
+	
+	return true;
+
+
+}
+
+
+bool EncodeMsg(const int cmd_id, const string &data, string &msg)
+
+{
+
+	memset(buf, 0, sizeof(buf));
+
+
+	
+	int magic_num = 1;
+	
+	int crc32 = Hash(data);
+	
+	int length = data.length();
+	
+	*(int *)&buf[0] = magic_num;
+	
+	*(int *)&buf[4] = cmd_id;
+	
+	*(int *)&buf[8] = crc32;
+	
+	*(int *)&buf[12] = length;
+
+
+	
+	memcpy(buf + 16, data.c_str(), length);
+
+
+	
+	msg = string(buf, 16 + length);
+	
 	return true;
 }
+
+
 void handle_accept(Server& server)
+
 {
-	puts("accept");
+
+	//	puts("accept");
 	SetNonBlock(server.socket.sock_fd, 1);
 	int clifd;
 	while (1)
@@ -124,7 +169,7 @@ void handle_accept(Server& server)
 		else 
 		{
 			Port[clifd] = ntohs(cliaddr.sin_port);
-//			printf("%d----%d\n", clifd, Port[clifd]);
+		//	printf("%d----%d\n", clifd, Port[clifd]);
 	//		memset(buf, 0, sizeof(buf));
 	//		string tmp = "";
 	//		if (server.room_max ==0) tmp += "we have no room now, enter something to create the room";
@@ -149,12 +194,14 @@ void Read(Server& server, int fd, string &msg)
 //	puts("reading");
 //	printf("%d\n", Port[fd]);
 //	Socket socket = Socket();
-	memset(buf, 0, sizeof(buf));
+	memset(buf2, 0, sizeof(buf2));
+//	printf("11 %d\n", Port[fd]);
 	SetNonBlock(fd, 1);
 	int cur = 0;
+//	printf("%d %d\n", fd, Port[fd]);
 	while (1)
 	{
-		int len = read(fd, buf + cur, 1024);
+		int len = read(fd, buf2 + cur, 1024);
 		
 		if (len == 0)
 		{
@@ -182,7 +229,10 @@ void Read(Server& server, int fd, string &msg)
 		cur += len;
 
 	}
-	msg = buf;
+//	printf("%d %d```\n",fd, Port[fd]); 
+	msg = string (buf2, cur);
+//	cout << s.substr(16, cur - 16)  << endl;
+//	puts("finish read");
 
 //	printf("111 %d\n", Port[fd]);
 //	memcpy(&node, msg, sizeof(msg));
@@ -235,7 +285,7 @@ void Read(Server& server, int fd, string &msg)
 		server.epoll.Modify(fd, EPOLLOUT | EPOLLET);
 	}
 */
-	puts("ok");
+//	puts("ok");
 	SetNonBlock(fd, 0);
 }
 
@@ -256,7 +306,8 @@ void Write(Server& server, int fd, string &msg)
 //	memcpy(&fuck, buf, sizeof(buf));
 //	printf("%s\n", fuck.buf);
 	memset(buf, 0, sizeof(buf));
-	strcpy(buf, msg.c_str());
+//	strcpy(buf, msg.c_str());
+	memcpy(buf, msg.c_str(), msg.length());
 
 	SetNonBlock(fd, 1);
 	int cur = 0;
@@ -297,6 +348,11 @@ void Write(Server& server, int fd, string &msg)
 }
 int main(int argc, char **argv)
 {
+//	s = "hello";
+//	int x;
+//	EncodeMsg(1, s, msg);
+//	DecodeMsg(msg, x, s);
+//	printf("%d--\n", x);
 	memset(Port, -1, sizeof(Port));
 	memset(Room, -1, sizeof(Room));
 	for (int i = 0; i < 777; ++i) room_list[i].clear();
@@ -310,39 +366,51 @@ int main(int argc, char **argv)
 	assert(server.socket.Bind(argv[1], StringToDig(argv[2])));
 	if (!server.socket.Listen()) puts("error!!!!");
 	server.epoll.Add(server.socket.sock_fd, EPOLLIN | EPOLLET);
-	puts("why2222");
+//	puts("why2222");
 	int cmd_id = 3;
 	while (1)
 	{
-		puts("wait1");
+//		puts("wait1");
 //		perror("wait");
 		int ret = server.epoll.Wait();
-		printf("ret = %d\n", ret);
+	//	printf("%d---\n", Port[6]);
+//		printf("ret = %d\n", ret);
 		for (int i = 0; i < ret; ++i)
 		{
+	//		printf("%d===\n", Port[6]);
 			int fd = server.epoll.GetFd(i);
+	//		printf("%d=-=-=\n", Port[fd]);
 			int events = server.epoll.GetEvents(i);
 			if (fd == server.socket.sock_fd)
 				handle_accept(server);
 			else if (events & EPOLLIN)
 			{
-				
+	//			printf("%d****%d\n", fd, Port[fd]);	
 				Read(server, fd, s);
-				DecodeMsg(s, cmd_id, msg);				
+	//			printf("after read %d\n", Port[fd]);
+		//		puts("?");
+				DecodeMsg(s, cmd_id, msg);			
+		//		puts("llll");
+		//		printf("cmd = %d\n", cmd_id);
 				if (cmd_id == 1)
 				{
+	//				printf("oooo %d  %d\n", fd, Port[fd]);
 					s = "";
 					s += "Create the new room, room number is : ";
 					s += DigToString(server.room_max++);
+					s += " , now you can start to chat";
 					Room[Port[fd]] = server.room_max - 1;
+		//			printf("%d  =\n", Room[Port[fd]]);
 					int id = Room[Port[fd]];
 					room_list[id].push_back(fd);
 					server.epoll.Modify(fd, EPOLLOUT | EPOLLET);
+	//				printf("%d  fidy %d\n", fd, Port[fd]);
+
 				}
 				else if (cmd_id == 2)
 				{
 					s = "";
-					if (msg == "")
+					if (msg == "-1")
 					{
 						
 						s += "please choose a number to enter , we have these room : ";
@@ -375,6 +443,7 @@ int main(int argc, char **argv)
 				{
 					s = "";
 					s += "port : ";
+			//		printf("%d, %d\n", fd, Port[fd]);
 					s += DigToString(Port[fd]);
 					s += " say: ";
 					s += msg;
@@ -390,8 +459,8 @@ int main(int argc, char **argv)
 			}
 			else if (events & EPOLLOUT)
 			{
-				EncodeMsg(cmd_id, msg, s);
-				Write(server, fd, s);
+				EncodeMsg(cmd_id, s, msg);
+				Write(server, fd, msg);
 
 			}
 		}
