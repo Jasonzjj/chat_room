@@ -9,7 +9,6 @@ Server::Server()
 	room_max = 0;
 	
 }
-vector <int> room_list[777];
 
 void SetNonBlock(int fd, const bool flag)
 {
@@ -51,6 +50,13 @@ struct Node
 	char userid[10];
 	char pwd[10];
 	char name[10];
+
+	void init()
+	{
+		memset(userid, 0, sizeof(userid));
+		memset(pwd, 0, sizeof(pwd));
+		memset(name, 0, sizeof(name));
+	}
 //	struct sockaddr_in address;
 };
 map<string, int>userfd;//when login,mark down userid and fd;
@@ -61,9 +67,6 @@ map<string, Node> signup;// when sign up, save it;
 char buf[103333];
 char buf2[102333];
 string s, msg;
-
-int Port[N];
-int Room[N];
 
 int Hash(string s)
 {
@@ -97,6 +100,7 @@ bool DecodeMsg(const string &data, int &cmd_id, string &msg, Node &node)
 	strcpy(tmp, buf + 20);
 	int length = StringToDig(tmp);
 //	memset(node, 0, sizeof(Node));
+	node.init();
 	strcpy(node.userid, buf + 30);
 	strcpy(node.pwd, buf + 40);
 	strcpy(node.name, buf + 50);
@@ -128,13 +132,10 @@ bool EncodeMsg(const int cmd_id, const string &data, const Node &node, string &m
 	strcpy(buf + 50, node.name);
 	memcpy(buf + 60, data.c_str(), length);
 	
-
-	
 	msg = string(buf, 60 + length);
 	
 	return true;
 }
-
 
 void handle_accept(Server& server)
 {
@@ -155,7 +156,7 @@ void handle_accept(Server& server)
 		}
 		else 
 		{
-			Port[clifd] = ntohs(cliaddr.sin_port);
+		//	Port[clifd] = ntohs(cliaddr.sin_port);
 			
 			server.epoll.Add(clifd, EPOLLIN | EPOLLET);
 			//add an modify sentence;
@@ -178,7 +179,7 @@ void Read(Server& server, int fd, string &msg)
 		
 		if (len == 0)
 		{
-			puts("clinet close in errors");
+			puts("clinet close");
 
 			/////////////////////////////////////////////
 			for (map<int, Node>::iterator iter = online.begin(); iter != online.end(); ++iter)
@@ -189,6 +190,7 @@ void Read(Server& server, int fd, string &msg)
 					break;
 				}
 			}
+			SetNonBlock(fd, 0);
 			return ;
 		}
 		if (len == -1)
@@ -222,6 +224,9 @@ void Write(Server& server, int fd, string &msg)
 		if (len == 0)
 		{
 			puts("client close");
+			SetNonBlock(fd, 0);
+			return ;
+			/*
 			int id = Room[Port[fd]];
 			
 			for (int i = 0; i < room_list[id].size(); ++i)
@@ -235,6 +240,7 @@ void Write(Server& server, int fd, string &msg)
 			Room[Port[fd]] = -1;
 			Port[fd] = 0;
 			//puts("?");
+			*/
 		}
 		else if (len == -1)
 		{
@@ -253,9 +259,9 @@ void Write(Server& server, int fd, string &msg)
 }
 int main(int argc, char **argv)
 {
-	memset(Port, -1, sizeof(Port));
-	memset(Room, -1, sizeof(Room));
-	for (int i = 0; i < 777; ++i) room_list[i].clear();
+//	memset(Port, -1, sizeof(Port));
+//	memset(Room, -1, sizeof(Room));
+//	for (int i = 0; i < 777; ++i) room_list[i].clear();
 	if (argc != 3)
 	{
 		puts("please input the ip address and the port");
@@ -288,7 +294,9 @@ int main(int argc, char **argv)
 			{
 
 	//			printf("%d****%d\n", fd, Port[fd]);	
+				s = "";
 				Read(server, fd, s);
+				if (s.length() == 0) continue;
 			//	Node node;
 				DecodeMsg(s, cmd_id, msg, node);			
 				s = "";
