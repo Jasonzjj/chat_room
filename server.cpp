@@ -1,4 +1,5 @@
 #include "server.h"
+
 const int N = 70123;
 
 Server::Server()
@@ -47,13 +48,15 @@ string DigToString(int num)
 }
 struct Node
 {
-	int magic_num;
-	int cmd_id;
-	int crc32;
-	int length;
+	char userid[10];
+	char pwd[10];
+	char name[10];
+//	struct sockaddr_in address;
+};
+map<string, int>userfd;//when login,mark down userid and fd;
 
-	string msg;
-}node;
+map<int, Node> online; //when login or quit, update it;
+map<string, Node> signup;// when sign up, save it;
 
 char buf[103333];
 char buf2[102333];
@@ -66,96 +69,80 @@ int Hash(string s)
 {
 	int hash = 0;
 	int mod = 13337;
+	int key = 37;
 	for (int i = 0; i < s.length(); ++i)
 	{
-		hash += s[i];
+		hash = hash * key + s[i];
 	}
 	hash %= mod;
 	hash = (hash + mod) % mod;
 	return hash;
 }
-bool DecodeMsg(const string &data, int &cmd_id, string &msg)
+bool DecodeMsg(const string &data, int &cmd_id, string &msg, Node &node)
 {
 
-
-	
 	memset(buf, 0, sizeof(buf));
 	
-	//	strcpy(buf, data.c_str());
-//	printf("--%d\n", data.length());	
 	memcpy(buf, data.c_str(), data.length());
-//	puts("ook");	
+
 	//for (int i = 0; i < data.length(); ++i) buf[i] = data[i];
-	
-	int magic_num = *(int *)&buf[0];
-	
-	cmd_id = *(int *)&buf[4];
-	
-	int crc32 = *(int *)&buf[8];
-	
-	int len = *(int *)&buf[12];
-	
-	//msg = buf + 16;
-//	cout << msg << endl;
-//	printf("len = %d\n", len);	
-//	if (len) puts("cao");
-	if (len) msg = string(buf + 16, len);
-		
-//	puts("fick");
+	char tmp[10];
+	memset(tmp, 0, sizeof(tmp));
+	strcpy(tmp, buf);
+	cmd_id = StringToDig(tmp);
+	memset(tmp, 0, sizeof(tmp));
+	strcpy(tmp, buf + 10);
+	int crc32 = StringToDig(tmp);
+	memset(tmp, 0, sizeof(tmp));
+	strcpy(tmp, buf + 20);
+	int length = StringToDig(tmp);
+//	memset(node, 0, sizeof(Node));
+	strcpy(node.userid, buf + 30);
+	strcpy(node.pwd, buf + 40);
+	strcpy(node.name, buf + 50);
+
+	if (length) msg = string(buf + 60, length);
 	if (Hash(msg) != crc32) return false;
 	
-	if (len != msg.length()) return false;
+	if (length != msg.length()) return false;
 	
 	return true;
-
-
 }
 
 
-bool EncodeMsg(const int cmd_id, const string &data, string &msg)
-
+bool EncodeMsg(const int cmd_id, const string &data, const Node &node, string &msg)
 {
 
 	memset(buf, 0, sizeof(buf));
-
-
-	
-	int magic_num = 1;
-	
+	string ts;
+	ts = DigToString(cmd_id);
+	strcpy(buf, ts.c_str());
 	int crc32 = Hash(data);
 	
 	int length = data.length();
 	
-	*(int *)&buf[0] = magic_num;
+	strcpy(buf + 10, DigToString(crc32).c_str());
+	strcpy(buf + 20, DigToString(length).c_str());
+	strcpy(buf + 30, node.userid);
+	strcpy(buf + 40, node.pwd);
+	strcpy(buf + 50, node.name);
+	memcpy(buf + 60, data.c_str(), length);
 	
-	*(int *)&buf[4] = cmd_id;
-	
-	*(int *)&buf[8] = crc32;
-	
-	*(int *)&buf[12] = length;
-
-
-	
-	memcpy(buf + 16, data.c_str(), length);
-
 
 	
-	msg = string(buf, 16 + length);
+	msg = string(buf, 60 + length);
 	
 	return true;
 }
 
 
 void handle_accept(Server& server)
-
 {
-
-	//	puts("accept");
+	puts("accept");
 	SetNonBlock(server.socket.sock_fd, 1);
 	int clifd;
 	while (1)
 	{
-	//	puts("accept");
 //		memset(buf, 0, sizeof(buf));
 		struct sockaddr_in cliaddr;
 		socklen_t cliaddrlen = sizeof(struct sockaddr_in);
@@ -169,20 +156,10 @@ void handle_accept(Server& server)
 		else 
 		{
 			Port[clifd] = ntohs(cliaddr.sin_port);
-		//	printf("%d----%d\n", clifd, Port[clifd]);
-	//		memset(buf, 0, sizeof(buf));
-	//		string tmp = "";
-	//		if (server.room_max ==0) tmp += "we have no room now, enter something to create the room";
-	//		else tmp += "we have these room : ";
-	//		for (int i = 0; i < server.room_max; ++i) 
-	//		{
-	//			tmp += DigToString(i);
-	//			if (i < server.room_max - 1) tmp += ", ";
-	//		}
-	//		strcpy(buf, tmp.c_str());
-		//	printf("%s\n", buf);
+			
 			server.epoll.Add(clifd, EPOLLIN | EPOLLET);
-//			puts("jhe");			
+			//add an modify sentence;
+			server.epoll.Modify(clifd, EPOLLIN | EPOLLET);
 		}
 	}
 
@@ -190,10 +167,6 @@ void handle_accept(Server& server)
 }
 void Read(Server& server, int fd, string &msg)
 {
-//	printf("000 %d\n", Port[fd]);
-//	puts("reading");
-//	printf("%d\n", Port[fd]);
-//	Socket socket = Socket();
 	memset(buf2, 0, sizeof(buf2));
 //	printf("11 %d\n", Port[fd]);
 	SetNonBlock(fd, 1);
@@ -205,21 +178,18 @@ void Read(Server& server, int fd, string &msg)
 		
 		if (len == 0)
 		{
-			puts("client close");
-			if (Port[fd] == -1) break;
-			int id = Room[Port[fd]];
-			if (id == -1) break;
-			for (int i = 0; i < server.room_max; ++i)
+			puts("clinet close in errors");
+
+			/////////////////////////////////////////////
+			for (map<int, Node>::iterator iter = online.begin(); iter != online.end(); ++iter)
 			{
-				if (room_list[id][i] == fd)
+				if (iter->first == fd)
 				{
-					room_list[id].erase(room_list[id].begin() + i);
+					online.erase(iter);
 					break;
 				}
 			}
-			Room[Port[fd]] = -1;
-			Port[fd] = 0;
-			break;
+			return ;
 		}
 		if (len == -1)
 		{
@@ -231,79 +201,13 @@ void Read(Server& server, int fd, string &msg)
 	}
 //	printf("%d %d```\n",fd, Port[fd]); 
 	msg = string (buf2, cur);
-//	cout << s.substr(16, cur - 16)  << endl;
-//	puts("finish read");
-
-//	printf("111 %d\n", Port[fd]);
-//	memcpy(&node, msg, sizeof(msg));
-/*	
-//	memset(buf, 0, sizeof(buf));
-	if (node.cmd_id == 2)
-	{
-//		puts("ok");
-//		printf("%s\n", socket.buf);
-		string tmp = "";
-		tmp += "port: ";
-		tmp += DigToString(Port[fd]);
-//		printf("%d??%d\n", fd, Port[fd]);
-//		printf("%s\n", DigToString(Port[fd]).c_str());
-		tmp +=  " enter the room ";
-//		strcpy(buf, tmp.c_str());
-		int num = StringToDig(socket.buf);
-//		printf("%d\n", num);
-		if (num >= server.room_max) num = server.room_max++;
-		Room[Port[fd]] = num;
-		int id = num;
-		room_list[id].push_back(fd);
-		tmp += DigToString(id) + "";
-//		printf("%s\n", tmp.c_str());
-		strcpy(buf, tmp.c_str());
-//		puts("pb");
-		for (int i = 0; i < room_list[id].size(); ++i)
-		{
-			int fd = room_list[id][i];
-	//		server.epoll.Add(fd, EPOLLOUT | EPOLLET);
-			server.epoll.Modify(fd, EPOLLOUT | EPOLLET);
-		}
-
-		SetNonBlock(fd, 0);
-//		puts("11");
-		return ;
-	}
-//	puts("2");
-	string tmp = "";
-	tmp += "port: ";
-	tmp += DigToString(Port[fd]);
-	tmp += "  say: ";
-	tmp += socket.buf;
-	strcpy(buf, tmp.c_str());
-	int id = Room[Port[fd]];
-	for (int i = 0; i < room_list[id].size(); ++i) 
-	{
-		int fd = room_list[id][i];
-	//	server.epoll.Add(fd, EPOLLOUT | EPOLLET);
-		server.epoll.Modify(fd, EPOLLOUT | EPOLLET);
-	}
-*/
-//	puts("ok");
+	
 	SetNonBlock(fd, 0);
 }
 
 
 void Write(Server& server, int fd, string &msg)
 {
-//	puts("writing");
-//	printf("%d\n", Port[fd]);
-//	Socket socket = Socket();
-//	puts("ok");
-		
-//	strcpy(socket.buf, buf);
-//	printf("%s\n", buf);
-//	memset(buf2, 0, sizeof(buf2));
-//	memcpy(buf2, &socket, sizeof(socket));
-	
-//	Socket fuck = Socket();
-//	memcpy(&fuck, buf, sizeof(buf));
 //	printf("%s\n", fuck.buf);
 	memset(buf, 0, sizeof(buf));
 //	strcpy(buf, msg.c_str());
@@ -319,6 +223,7 @@ void Write(Server& server, int fd, string &msg)
 		{
 			puts("client close");
 			int id = Room[Port[fd]];
+			
 			for (int i = 0; i < room_list[id].size(); ++i)
 			{
 				if (room_list[id][i] == fd)
@@ -348,11 +253,6 @@ void Write(Server& server, int fd, string &msg)
 }
 int main(int argc, char **argv)
 {
-//	s = "hello";
-//	int x;
-//	EncodeMsg(1, s, msg);
-//	DecodeMsg(msg, x, s);
-//	printf("%d--\n", x);
 	memset(Port, -1, sizeof(Port));
 	memset(Room, -1, sizeof(Room));
 	for (int i = 0; i < 777; ++i) room_list[i].clear();
@@ -366,8 +266,9 @@ int main(int argc, char **argv)
 	assert(server.socket.Bind(argv[1], StringToDig(argv[2])));
 	if (!server.socket.Listen()) puts("error!!!!");
 	server.epoll.Add(server.socket.sock_fd, EPOLLIN | EPOLLET);
-//	puts("why2222");
+//	puts("ok");
 	int cmd_id = 3;
+	Node node;
 	while (1)
 	{
 //		puts("wait1");
@@ -385,81 +286,130 @@ int main(int argc, char **argv)
 				handle_accept(server);
 			else if (events & EPOLLIN)
 			{
+
 	//			printf("%d****%d\n", fd, Port[fd]);	
 				Read(server, fd, s);
-	//			printf("after read %d\n", Port[fd]);
-		//		puts("?");
-				DecodeMsg(s, cmd_id, msg);			
+			//	Node node;
+				DecodeMsg(s, cmd_id, msg, node);			
+				s = "";
 		//		puts("llll");
 		//		printf("cmd = %d\n", cmd_id);
-				if (cmd_id == 1)
+				if (cmd_id)
 				{
-	//				printf("oooo %d  %d\n", fd, Port[fd]);
-					s = "";
-					s += "Create the new room, room number is : ";
-					s += DigToString(server.room_max++);
-					s += " , now you can start to chat";
-					Room[Port[fd]] = server.room_max - 1;
-		//			printf("%d  =\n", Room[Port[fd]]);
-					int id = Room[Port[fd]];
-					room_list[id].push_back(fd);
-					server.epoll.Modify(fd, EPOLLOUT | EPOLLET);
-	//				printf("%d  fidy %d\n", fd, Port[fd]);
-
+					strcpy(node.name, signup[node.userid].name);
 				}
-				else if (cmd_id == 2)
+				if (cmd_id == 0)  //sign up
 				{
-					s = "";
-					if (msg == "-1")
+					if (signup.find(node.userid) != signup.end()) 
 					{
+						s = "";
+						s += "the userid is exist!";
 						
-						s += "please choose a number to enter , we have these room : ";
-						for (int i = 0; i < server.room_max; ++i)
-						{
-							s += DigToString(i);
-							if (i != server.room_max - 1) s += " , ";
-						}
-						
+						//exist;
+					}
+					else 
+					{
+						s = "";
+						s += "sign up success~";
+						signup[node.userid] = node;	
+					}
+					server.epoll.Modify(fd, EPOLLOUT | EPOLLET);
+				//	server.epoll.Delete(fd, EPOLLIN | EPOLLET);
+					
+				}
+				else if (cmd_id == 1) //login
+				{
+					if (signup.find(node.userid) == signup.end() || strcmp(signup[node.userid].pwd, node.pwd))
+					{
+						s = "";
+						s += "password error or the account doesn't exist";
 						server.epoll.Modify(fd, EPOLLOUT | EPOLLET);
 					}
 					else 
 					{
-						s += "port : ";
-						s += DigToString(Port[fd]);
-						s += " enter the room_";
-						s += msg;
-						Room[Port[fd]] = StringToDig(msg);
-						int id = Room[Port[fd]];
-						room_list[id].push_back(fd);
-						for (int i = 0; i < room_list[id].size(); ++i)
+						s = "";
+						memset(buf, 0, sizeof(buf));
+						online[fd] = node;
+//						strcpy(online[fd].name, sign[node.userid].name);
+						userfd[node.userid] = fd;
+						int k = 0;
+						cmd_id = 5;
+						for (map<int, Node>::iterator it = online.begin(); it != online.end(); ++it)
 						{
-							int fd = room_list[id][i];
-							server.epoll.Modify(fd, EPOLLOUT | EPOLLET);
+							strcpy(buf + 10 * k, it->second.userid);
+							k++;
+							strcpy(buf + 10 * k, it->second.name);
+							k++;
 						}
-					}
-				
-				}
-				else 
-				{
-					s = "";
-					s += "port : ";
-			//		printf("%d, %d\n", fd, Port[fd]);
-					s += DigToString(Port[fd]);
-					s += " say: ";
-					s += msg;
-					int id = Room[Port[fd]];
-					for (int i = 0; i < room_list[id].size(); ++i)
-					{
-						int fd = room_list[id][i];
-						server.epoll.Modify(fd, EPOLLOUT | EPOLLET);
+						s += buf;
+						for (map<int, Node>::iterator it = online.begin(); it != online.end(); ++it)
+						{
+							server.epoll.Modify(fd, EPOLLOUT | EPOLLET);
+						}	
 					}
 
+				}
+				else if (cmd_id == 2) // exit
+				{
+					
+					s = "";
+				
+					for (map<int, Node>::iterator it = online.begin(); it != online.end(); ++it)
+					{
+						if (fd == it->first)
+						{
+							online.erase(it);
+							break;
+						}
+					}
+					cmd_id = 5;
+					int k = 0;
+					memset(buf, 0, sizeof(buf));
+					for (map<int, Node>::iterator it = online.begin(); it != online.end(); ++it)
+					{
+						strcpy(buf + 10 * k, it->second.userid);
+						k++;
+						strcpy(buf + 10 * k, it->second.name);
+						k++;
+					}
+					s += buf;
+					for (map<int, Node>::iterator it = online.begin(); it != online.end(); ++it)
+					{
+						server.epoll.Modify(fd, EPOLLOUT | EPOLLET);
+					}
+				
+//					serer.epoll.Modify(fd, EPOLLOUT | EPOLLET);
+				}
+				else if (cmd_id == 3) // one to one
+				{
+//					printf("%s", msg.c_str());
+//					continue;
+					char tmp[10];
+					strcpy(tmp, msg.c_str());
+										
+					s = "";
+					
+					s = msg.substr(10, msg.length() - 10);
+					
+					server.epoll.Modify(userfd[tmp], EPOLLOUT | EPOLLET);
+
+				}
+				else if (cmd_id == 4) // to all people
+				{
+					s = "";
+					s += msg;
+					for (map<int, Node>::iterator it = online.begin(); it != online.end(); ++it)
+					{
+						server.epoll.Modify(fd, EPOLLOUT | EPOLLET);
+					}
+					
 				}
 
 			}
 			else if (events & EPOLLOUT)
 			{
-				EncodeMsg(cmd_id, s, msg);
+				
+				EncodeMsg(cmd_id, s, node, msg);
 				Write(server, fd, msg);
 
 			}
